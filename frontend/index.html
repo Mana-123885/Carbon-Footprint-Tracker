@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Track, understand, and reduce your carbon footprint with AI-powered insights and gamification.">
+    <title>EcoTrack — Carbon Footprint Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.7.9/dist/axios.min.js"></script>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <!-- Auth Screen -->
+    <div id="auth-screen" class="auth-screen">
+        <div class="auth-container">
+            <div class="auth-brand">
+                <div class="brand-icon">🌍</div>
+                <h1>EcoTrack</h1>
+                <p>Your AI-Powered Carbon Footprint Companion</p>
+            </div>
+            <div class="auth-card">
+                <div class="auth-tabs">
+                    <button class="auth-tab active" onclick="showAuthTab('login')">Sign In</button>
+                    <button class="auth-tab" onclick="showAuthTab('register')">Sign Up</button>
+                </div>
+                <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="login-email" required placeholder="you@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="login-password" required placeholder="••••••••">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Sign In</button>
+                </form>
+                <form id="register-form" class="auth-form hidden" onsubmit="handleRegister(event)">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="reg-username" required placeholder="ecowarrior" minlength="3">
+                    </div>
+                    <div class="form-group">
+                        <label>Email</label>
+                        <input type="email" id="reg-email" required placeholder="you@example.com">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="reg-password" required placeholder="Min 6 characters" minlength="6">
+                    </div>
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="reg-fullname" placeholder="Your Name">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-full">Create Account</button>
+                </form>
+                <div id="auth-error" class="auth-error hidden"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main App -->
+    <div id="app" class="app hidden">
+        <!-- Sidebar -->
+        <nav id="sidebar" class="sidebar">
+            <div class="sidebar-brand">
+                <span class="brand-icon-sm">🌍</span>
+                <span class="brand-text">EcoTrack</span>
+            </div>
+            <div class="sidebar-nav">
+                <button class="nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">
+                    <span class="nav-icon">📊</span><span class="nav-label">Dashboard</span>
+                </button>
+                <button class="nav-item" data-page="add-activity" onclick="navigateTo('add-activity')">
+                    <span class="nav-icon">➕</span><span class="nav-label">Add Activity</span>
+                </button>
+                <button class="nav-item" data-page="insights" onclick="navigateTo('insights')">
+                    <span class="nav-icon">💡</span><span class="nav-label">Insights</span>
+                </button>
+                <button class="nav-item" data-page="ai-coach" onclick="navigateTo('ai-coach')">
+                    <span class="nav-icon">🤖</span><span class="nav-label">AI Coach</span>
+                </button>
+                <button class="nav-item" data-page="goals" onclick="navigateTo('goals')">
+                    <span class="nav-icon">🎯</span><span class="nav-label">Goals</span>
+                </button>
+                <button class="nav-item" data-page="challenges" onclick="navigateTo('challenges')">
+                    <span class="nav-icon">🏆</span><span class="nav-label">Challenges</span>
+                </button>
+                <button class="nav-item" data-page="education" onclick="navigateTo('education')">
+                    <span class="nav-icon">📚</span><span class="nav-label">Learn</span>
+                </button>
+                <button class="nav-item" data-page="settings" onclick="navigateTo('settings')">
+                    <span class="nav-icon">⚙️</span><span class="nav-label">Settings</span>
+                </button>
+            </div>
+            <div class="sidebar-footer">
+                <button class="nav-item" onclick="handleLogout()">
+                    <span class="nav-icon">🚪</span><span class="nav-label">Logout</span>
+                </button>
+            </div>
+        </nav>
+
+        <!-- Mobile Header -->
+        <header class="mobile-header">
+            <button class="hamburger" onclick="toggleSidebar()">☰</button>
+            <span class="brand-text">🌍 EcoTrack</span>
+            <button class="theme-toggle-mobile" onclick="toggleTheme()">🌗</button>
+        </header>
+
+        <!-- Main Content -->
+        <main id="main-content" class="main-content">
+            <!-- Dashboard Page -->
+            <div id="page-dashboard" class="page active">
+                <div class="page-header">
+                    <div>
+                        <h1 id="greeting">Good morning! 🌱</h1>
+                        <p id="user-greeting-name" class="subtitle">Welcome back</p>
+                    </div>
+                    <button class="btn btn-outline btn-sm" onclick="toggleTheme()">🌗 Theme</button>
+                </div>
+
+                <!-- Score Ring -->
+                <div class="score-section">
+                    <div class="score-ring-container">
+                        <svg class="score-ring" viewBox="0 0 200 200">
+                            <circle class="score-ring-bg" cx="100" cy="100" r="85" />
+                            <circle id="score-ring-fill" class="score-ring-fill" cx="100" cy="100" r="85" />
+                        </svg>
+                        <div class="score-ring-text">
+                            <span id="eco-score-value" class="score-number">500</span>
+                            <span class="score-label">Eco Score</span>
+                        </div>
+                    </div>
+                    <div class="score-info">
+                        <span id="eco-level-badge" class="level-badge">🌰 Newcomer</span>
+                    </div>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="stats-grid">
+                    <div class="stat-card stat-today">
+                        <div class="stat-icon">📅</div>
+                        <div class="stat-value" id="today-carbon">0.0</div>
+                        <div class="stat-label">Today (kg CO₂)</div>
+                    </div>
+                    <div class="stat-card stat-week">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-value" id="week-carbon">0.0</div>
+                        <div class="stat-label">This Week</div>
+                    </div>
+                    <div class="stat-card stat-month">
+                        <div class="stat-icon">📆</div>
+                        <div class="stat-value" id="month-carbon">0.0</div>
+                        <div class="stat-label">This Month</div>
+                    </div>
+                    <div class="stat-card stat-budget">
+                        <div class="stat-icon">🎯</div>
+                        <div class="stat-value" id="budget-percent">0%</div>
+                        <div class="stat-label">Budget Used</div>
+                    </div>
+                </div>
+
+                <!-- Budget Progress -->
+                <div class="card">
+                    <h3>Monthly Carbon Budget</h3>
+                    <div class="progress-bar-container">
+                        <div id="budget-progress-bar" class="progress-bar" style="width:0%"></div>
+                    </div>
+                    <p class="progress-text">
+                        <span id="budget-used">0</span> / <span id="budget-total">300</span> kg CO₂
+                    </p>
+                </div>
+
+                <!-- Charts Row -->
+                <div class="charts-grid">
+                    <div class="card chart-card">
+                        <h3>Weekly Trend</h3>
+                        <canvas id="weekly-chart"></canvas>
+                    </div>
+                    <div class="card chart-card">
+                        <h3>Category Breakdown</h3>
+                        <canvas id="category-chart"></canvas>
+                    </div>
+                </div>
+
+                <!-- Recent Activities -->
+                <div class="card">
+                    <div class="card-header-row">
+                        <h3>Recent Activities</h3>
+                        <button class="btn btn-sm btn-outline" onclick="navigateTo('add-activity')">+ Add</button>
+                    </div>
+                    <div id="recent-activities" class="activity-list">
+                        <p class="empty-state">No activities yet. Start tracking! 🌱</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add Activity Page -->
+            <div id="page-add-activity" class="page hidden">
+                <div class="page-header"><h1>Add Activity ➕</h1></div>
+                <!-- Category Tabs -->
+                <div class="category-tabs">
+                    <button class="cat-tab active" data-cat="transport" onclick="selectCategory('transport')">🚗 Transport</button>
+                    <button class="cat-tab" data-cat="food" onclick="selectCategory('food')">🍽️ Food</button>
+                    <button class="cat-tab" data-cat="energy" onclick="selectCategory('energy')">⚡ Energy</button>
+                    <button class="cat-tab" data-cat="waste" onclick="selectCategory('waste')">♻️ Waste</button>
+                </div>
+                <!-- Activity Grid -->
+                <div id="activity-grid" class="activity-grid"></div>
+                <!-- Add Form -->
+                <div id="add-form" class="card add-form hidden">
+                    <h3 id="add-form-title">Activity</h3>
+                    <div class="form-group">
+                        <label>Quantity (<span id="add-form-unit">km</span>)</label>
+                        <input type="number" id="add-quantity" step="0.1" min="0.1" required>
+                    </div>
+                    <div id="carbon-preview" class="carbon-preview hidden">
+                        <span class="preview-label">Estimated CO₂:</span>
+                        <span id="preview-value" class="preview-value">0.00 kg</span>
+                    </div>
+                    <div class="form-group">
+                        <label>Description (optional)</label>
+                        <input type="text" id="add-description" placeholder="e.g., Commute to work">
+                    </div>
+                    <button class="btn btn-primary btn-full" onclick="submitActivity()">Save Activity</button>
+                </div>
+                <!-- Result Card -->
+                <div id="activity-result" class="card activity-result hidden">
+                    <div class="result-icon">✅</div>
+                    <h3>Activity Logged!</h3>
+                    <div id="result-details"></div>
+                    <div id="result-alternatives"></div>
+                    <button class="btn btn-outline" onclick="resetAddForm()">Add Another</button>
+                </div>
+            </div>
+
+            <!-- Insights Page -->
+            <div id="page-insights" class="page hidden">
+                <div class="page-header"><h1>Insights 💡</h1></div>
+                <div id="insights-summary" class="card insight-summary"></div>
+                <div class="card"><h3>Tips for You</h3><div id="insights-tips" class="tips-list"></div></div>
+                <div class="card"><h3>Eco Score History</h3><canvas id="score-history-chart"></canvas></div>
+            </div>
+
+            <!-- AI Coach Page -->
+            <div id="page-ai-coach" class="page hidden">
+                <div class="page-header"><h1>AI Eco Coach 🤖</h1></div>
+                <div class="chat-container">
+                    <div id="chat-messages" class="chat-messages">
+                        <div class="chat-msg bot">
+                            <div class="chat-avatar">🤖</div>
+                            <div class="chat-bubble">Hello! I'm your AI Eco Coach. Ask me anything about reducing your carbon footprint, understanding emissions, or living sustainably! 🌍</div>
+                        </div>
+                    </div>
+                    <div class="chat-input-area">
+                        <input type="text" id="chat-input" placeholder="Ask your eco coach..." onkeypress="if(event.key==='Enter')sendChat()">
+                        <button class="btn btn-primary" onclick="sendChat()">Send</button>
+                    </div>
+                </div>
+                <div class="quick-prompts">
+                    <button class="prompt-chip" onclick="quickChat('How can I reduce my carbon footprint?')">💡 Reduce footprint</button>
+                    <button class="prompt-chip" onclick="quickChat('What is my eco score?')">📊 My score</button>
+                    <button class="prompt-chip" onclick="quickChat('Give me transport tips')">🚗 Transport tips</button>
+                    <button class="prompt-chip" onclick="quickChat('Give me food tips')">🍽️ Food tips</button>
+                </div>
+            </div>
+
+            <!-- Goals Page -->
+            <div id="page-goals" class="page hidden">
+                <div class="page-header">
+                    <h1>Goals 🎯</h1>
+                    <button class="btn btn-primary btn-sm" onclick="showGoalForm()">+ New Goal</button>
+                </div>
+                <div id="goal-form" class="card hidden">
+                    <h3>Create New Goal</h3>
+                    <div class="form-group">
+                        <label>Goal Title</label>
+                        <input type="text" id="goal-title" placeholder="e.g., Reduce transport emissions" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Target Reduction (kg CO₂)</label>
+                        <input type="number" id="goal-target" step="1" min="1" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Category</label>
+                        <select id="goal-category">
+                            <option value="general">General</option>
+                            <option value="transport">Transport</option>
+                            <option value="food">Food</option>
+                            <option value="energy">Energy</option>
+                            <option value="waste">Waste</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="createGoal()">Create Goal</button>
+                </div>
+                <div id="goals-list" class="goals-list">
+                    <p class="empty-state">No goals yet. Set your first goal! 🎯</p>
+                </div>
+            </div>
+
+            <!-- Challenges Page -->
+            <div id="page-challenges" class="page hidden">
+                <div class="page-header"><h1>Challenges 🏆</h1></div>
+                <div id="challenges-list" class="challenges-grid"></div>
+            </div>
+
+            <!-- Education Page -->
+            <div id="page-education" class="page hidden">
+                <div class="page-header"><h1>Learn 📚</h1></div>
+                <div id="education-cards" class="edu-grid"></div>
+                <div class="card">
+                    <h3>🌍 Did You Know?</h3>
+                    <div id="eco-facts" class="facts-list"></div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div id="page-settings" class="page hidden">
+                <div class="page-header"><h1>Settings ⚙️</h1></div>
+                <div class="card">
+                    <h3>Appearance</h3>
+                    <div class="setting-row">
+                        <span>Dark Mode</span>
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="theme-toggle-cb" onchange="toggleTheme()">
+                            <span class="toggle-slider"></span>
+                        </label>
+                    </div>
+                </div>
+                <div class="card">
+                    <h3>Carbon Budget</h3>
+                    <div class="form-group">
+                        <label>Monthly Budget (kg CO₂)</label>
+                        <input type="number" id="settings-budget" step="10" min="50" value="300">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="saveBudget()">Save</button>
+                </div>
+                <div class="card">
+                    <h3>Profile</h3>
+                    <div class="form-group">
+                        <label>Full Name</label>
+                        <input type="text" id="settings-name">
+                    </div>
+                    <button class="btn btn-primary btn-sm" onclick="saveProfile()">Update Profile</button>
+                </div>
+                <div class="card">
+                    <h3>Account</h3>
+                    <button class="btn btn-outline btn-sm" onclick="handleLogout()">Log Out</button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Mobile Bottom Nav -->
+    <nav id="mobile-nav" class="mobile-nav hidden">
+        <button class="mob-nav-item active" data-page="dashboard" onclick="navigateTo('dashboard')">📊<span>Home</span></button>
+        <button class="mob-nav-item" data-page="add-activity" onclick="navigateTo('add-activity')">➕<span>Add</span></button>
+        <button class="mob-nav-item" data-page="ai-coach" onclick="navigateTo('ai-coach')">🤖<span>Coach</span></button>
+        <button class="mob-nav-item" data-page="insights" onclick="navigateTo('insights')">💡<span>Insights</span></button>
+        <button class="mob-nav-item" data-page="settings" onclick="navigateTo('settings')">⚙️<span>More</span></button>
+    </nav>
+
+    <!-- Toast -->
+    <div id="toast" class="toast hidden"></div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>
