@@ -42,7 +42,7 @@ The application approaches climate change mitigation by transforming a tradition
 
 **Backend:**
 - Python 3.10+
-- FastAPI (Web framework)
+- Flask (Web framework)
 - SQLite with SQLAlchemy (Database & ORM)
 - PyJWT & Bcrypt (Authentication)
 
@@ -81,7 +81,7 @@ Make sure you have Python 3 installed on your system.
    ```bash
    python main.py
    ```
-   *The server will start using Uvicorn. The database and seed data will be initialized automatically.*
+   *The server will start using Flask's development server on port 8000. The database and seed data will be initialized automatically.*
 
 5. **Access the App:**
    Open your browser and navigate to `http://localhost:8000`. You can install the application to your device directly from the browser's address bar.
@@ -90,7 +90,7 @@ Make sure you have Python 3 installed on your system.
 
 ```
 Carbon-Footprint-Tracker/
-├── backend/                  # FastAPI Backend
+├── backend/                  # Flask Backend
 │   ├── main.py               # Main application entry point & API routes
 │   ├── models.py             # SQLAlchemy database models
 │   ├── schemas.py            # Pydantic schemas for data validation

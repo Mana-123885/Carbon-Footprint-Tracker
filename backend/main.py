@@ -1,82 +1,91 @@
 """
-Carbon Footprint Tracker — FastAPI Main Application
+Carbon Footprint Tracker — Flask Main Application
 """
-from datetime import datetime, timedelta, timezone
-from fastapi import FastAPI, Depends, HTTPException, status
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-from sqlalchemy import func
 import os
+from datetime import datetime, timedelta, timezone
+from flask import Flask, request, jsonify, send_file, send_from_directory, g
+from flask_cors import CORS
+from sqlalchemy import func
+from pydantic import ValidationError
 
-from database import get_db, init_db
+from database import init_db, SessionLocal
 from models import User, Activity, Goal, Challenge, UserChallenge, Badge, UserBadge, EcoScoreHistory
 from schemas import (
-    UserRegister, UserLogin, TokenResponse, ActivityCreate,
+    UserRegister, UserLogin, ActivityCreate,
     GoalCreate, GoalUpdate, SettingsUpdate, ChatMessage
 )
-from auth import hash_password, verify_password, create_access_token, get_current_user_id
+from auth import hash_password, verify_password, create_access_token, auth_required, get_current_user_id
 from carbon_engine import carbon_calculator, EcoScoreEngine, AIEcoCoach
 from seed_data import seed_all
-from config import APP_NAME, APP_VERSION
+from config import APP_NAME
 
-app = FastAPI(title=APP_NAME, version=APP_VERSION)
+app = Flask(APP_NAME)
+CORS(app)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Serve frontend
 FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
-if os.path.exists(FRONTEND_DIR):
-    app.mount("/static", StaticFiles(directory=FRONTEND_DIR), name="static")
 
+@app.before_request
+def before_request():
+    g.db = SessionLocal()
 
-@app.on_event("startup")
-def on_startup():
+@app.teardown_appcontext
+def teardown(exception=None):
+    db = g.pop('db', None)
+    if db is not None:
+        db.close()
+
+# Initialize DB on startup
+with app.app_context():
     init_db()
-    db = next(get_db())
+    db = SessionLocal()
     try:
         seed_all(db)
     finally:
         db.close()
 
+# ═══════════════════ FRONTEND ROUTES ═══════════════════
 
-@app.get("/")
+@app.route("/")
 def serve_index():
     index_path = os.path.join(FRONTEND_DIR, "index.html")
     if os.path.exists(index_path):
-        return FileResponse(index_path)
-    return {"message": f"{APP_NAME} API v{APP_VERSION}"}
+        return send_file(index_path)
+    return jsonify({"message": f"{APP_NAME} API"}), 200
 
-@app.get("/manifest.json")
+@app.route("/static/<path:filename>")
+def serve_static(filename):
+    return send_from_directory(FRONTEND_DIR, filename)
+
+@app.route("/manifest.json")
 def serve_manifest():
     path = os.path.join(FRONTEND_DIR, "manifest.json")
     if os.path.exists(path):
-        return FileResponse(path)
-    raise HTTPException(404, "Manifest not found")
+        return send_file(path)
+    return jsonify({"detail": "Manifest not found"}), 404
 
-@app.get("/sw.js")
+@app.route("/sw.js")
 def serve_sw():
     path = os.path.join(FRONTEND_DIR, "sw.js")
     if os.path.exists(path):
-        return FileResponse(path)
-    raise HTTPException(404, "Service Worker not found")
+        return send_file(path)
+    return jsonify({"detail": "Service Worker not found"}), 404
 
 
 # ═══════════════════ AUTH ═══════════════════
 
-@app.post("/api/register", response_model=TokenResponse)
-def register(data: UserRegister, db: Session = Depends(get_db)):
+@app.route("/api/register", methods=["POST"])
+def register():
+    try:
+        data = UserRegister(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    db = g.db
     if db.query(User).filter(User.email == data.email).first():
-        raise HTTPException(400, "Email already registered")
+        return jsonify({"detail": "Email already registered"}), 400
     if db.query(User).filter(User.username == data.username).first():
-        raise HTTPException(400, "Username already taken")
+        return jsonify({"detail": "Username already taken"}), 400
+        
     user = User(
         username=data.username, email=data.email,
         hashed_password=hash_password(data.password),
@@ -86,39 +95,58 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
     db.add(user)
     db.commit()
     db.refresh(user)
-    # Add initial eco score history
+    
     db.add(EcoScoreHistory(user_id=user.id, score=500, change=0, reason="Account created"))
     db.commit()
+    
     token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token, user=_user_dict(user))
+    return jsonify({"access_token": token, "user": _user_dict(user)})
 
 
-@app.post("/api/login", response_model=TokenResponse)
-def login(data: UserLogin, db: Session = Depends(get_db)):
+@app.route("/api/login", methods=["POST"])
+def login():
+    try:
+        data = UserLogin(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    db = g.db
     user = db.query(User).filter(User.email == data.email).first()
     if not user or not verify_password(data.password, user.hashed_password):
-        raise HTTPException(401, "Invalid credentials")
+        return jsonify({"detail": "Invalid credentials"}), 401
+        
     token = create_access_token({"sub": str(user.id)})
-    return TokenResponse(access_token=token, user=_user_dict(user))
+    return jsonify({"access_token": token, "user": _user_dict(user)})
 
 
-@app.get("/api/me")
-def get_me(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
+@app.route("/api/me", methods=["GET"])
+@auth_required
+def get_me():
+    user_id = get_current_user_id()
+    user = g.db.query(User).filter(User.id == user_id).first()
     if not user:
-        raise HTTPException(404, "User not found")
-    return _user_dict(user)
+        return jsonify({"detail": "User not found"}), 404
+    return jsonify(_user_dict(user))
 
 
 # ═══════════════════ ACTIVITIES ═══════════════════
 
-@app.post("/api/add-activity")
-def add_activity(data: ActivityCreate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+@app.route("/api/add-activity", methods=["POST"])
+@auth_required
+def add_activity():
+    try:
+        data = ActivityCreate(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
     try:
         result = carbon_calculator.calculate(data.category, data.activity_type, data.quantity)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        return jsonify({"detail": str(e)}), 400
 
+    user_id = get_current_user_id()
+    db = g.db
+    
     activity = Activity(
         user_id=user_id, category=data.category, activity_type=data.activity_type,
         description=data.description or result["label"], quantity=data.quantity,
@@ -127,7 +155,6 @@ def add_activity(data: ActivityCreate, user_id: int = Depends(get_current_user_i
     )
     db.add(activity)
 
-    # Update eco score
     user = db.query(User).filter(User.id == user_id).first()
     score_change = EcoScoreEngine.calculate_activity_impact(
         result["carbon_kg"], data.category, data.activity_type
@@ -142,73 +169,69 @@ def add_activity(data: ActivityCreate, user_id: int = Depends(get_current_user_i
 
     db.commit()
     db.refresh(activity)
-    return {
+    
+    return jsonify({
         "activity": _activity_dict(activity),
         "carbon_result": result,
         "eco_score": user.eco_score,
         "score_change": score_change,
         "alternatives": carbon_calculator.get_eco_alternatives(data.category, data.activity_type)
-    }
+    })
 
 
-@app.get("/api/activities")
-def get_activities(
-    days: int = 30,
-    user_id: int = Depends(get_current_user_id),
-    db: Session = Depends(get_db)
-):
+@app.route("/api/activities", methods=["GET"])
+@auth_required
+def get_activities():
+    days = int(request.args.get('days', 30))
+    user_id = get_current_user_id()
     since = datetime.now(timezone.utc) - timedelta(days=days)
+    
     activities = (
-        db.query(Activity)
+        g.db.query(Activity)
         .filter(Activity.user_id == user_id, Activity.date >= since)
         .order_by(Activity.date.desc())
         .all()
     )
-    return [_activity_dict(a) for a in activities]
+    return jsonify([_activity_dict(a) for a in activities])
 
 
-@app.delete("/api/activities/{activity_id}")
-def delete_activity(activity_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    act = db.query(Activity).filter(Activity.id == activity_id, Activity.user_id == user_id).first()
+@app.route("/api/activities/<int:activity_id>", methods=["DELETE"])
+@auth_required
+def delete_activity(activity_id):
+    user_id = get_current_user_id()
+    act = g.db.query(Activity).filter(Activity.id == activity_id, Activity.user_id == user_id).first()
     if not act:
-        raise HTTPException(404, "Activity not found")
-    db.delete(act)
-    db.commit()
-    return {"message": "Deleted"}
+        return jsonify({"detail": "Activity not found"}), 404
+        
+    g.db.delete(act)
+    g.db.commit()
+    return jsonify({"message": "Deleted"})
 
 
 # ═══════════════════ DASHBOARD ═══════════════════
 
-@app.get("/api/get-dashboard")
-def get_dashboard(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+@app.route("/api/get-dashboard", methods=["GET"])
+@auth_required
+def get_dashboard():
+    user_id = get_current_user_id()
+    db = g.db
     user = db.query(User).filter(User.id == user_id).first()
     now = datetime.now(timezone.utc)
 
-    # This month's activities
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    month_acts = db.query(Activity).filter(
-        Activity.user_id == user_id, Activity.date >= month_start
-    ).all()
+    month_acts = db.query(Activity).filter(Activity.user_id == user_id, Activity.date >= month_start).all()
 
-    # Today's activities
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    today_acts = db.query(Activity).filter(
-        Activity.user_id == user_id, Activity.date >= today_start
-    ).all()
+    today_acts = db.query(Activity).filter(Activity.user_id == user_id, Activity.date >= today_start).all()
 
-    # Week activities
     week_start = now - timedelta(days=now.weekday())
     week_start = week_start.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_acts = db.query(Activity).filter(
-        Activity.user_id == user_id, Activity.date >= week_start
-    ).all()
+    week_acts = db.query(Activity).filter(Activity.user_id == user_id, Activity.date >= week_start).all()
 
-    # Category breakdown
     categories = {}
     for a in month_acts:
         categories[a.category] = categories.get(a.category, 0) + a.carbon_kg
 
-    # Daily totals for the week chart
     daily_totals = {}
     for i in range(7):
         d = (now - timedelta(days=6 - i)).strftime("%Y-%m-%d")
@@ -224,10 +247,9 @@ def get_dashboard(user_id: int = Depends(get_current_user_id), db: Session = Dep
     budget = user.monthly_budget_kg
     level = EcoScoreEngine.get_level(user.eco_score)
 
-    # Recent activities
     recent = db.query(Activity).filter(Activity.user_id == user_id).order_by(Activity.date.desc()).limit(5).all()
 
-    return {
+    return jsonify({
         "user": _user_dict(user),
         "eco_score": user.eco_score,
         "level": level,
@@ -240,121 +262,159 @@ def get_dashboard(user_id: int = Depends(get_current_user_id), db: Session = Dep
         "daily_totals": daily_totals,
         "recent_activities": [_activity_dict(a) for a in recent],
         "activity_count": len(month_acts),
-    }
+    })
 
 
 # ═══════════════════ INSIGHTS ═══════════════════
 
-@app.get("/api/get-insights")
-def get_insights(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+@app.route("/api/get-insights", methods=["GET"])
+@auth_required
+def get_insights():
+    user_id = get_current_user_id()
+    db = g.db
     user = db.query(User).filter(User.id == user_id).first()
+    
     month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    activities = db.query(Activity).filter(
-        Activity.user_id == user_id, Activity.date >= month_start
-    ).all()
+    activities = db.query(Activity).filter(Activity.user_id == user_id, Activity.date >= month_start).all()
+    
     acts_data = [{"category": a.category, "carbon_kg": a.carbon_kg, "activity_type": a.activity_type} for a in activities]
     insights = AIEcoCoach.get_insights(acts_data, user.eco_score, user.monthly_budget_kg)
 
-    # Score history
-    history = db.query(EcoScoreHistory).filter(
-        EcoScoreHistory.user_id == user_id
-    ).order_by(EcoScoreHistory.recorded_at.desc()).limit(30).all()
+    history = db.query(EcoScoreHistory).filter(EcoScoreHistory.user_id == user_id).order_by(EcoScoreHistory.recorded_at.desc()).limit(30).all()
 
-    return {
+    response_data = {
         **insights,
         "eco_score": user.eco_score,
-        "score_history": [{"score": h.score, "change": h.change, "reason": h.reason,
-                           "date": h.recorded_at.isoformat()} for h in history],
+        "score_history": [{"score": h.score, "change": h.change, "reason": h.reason, "date": h.recorded_at.isoformat()} for h in history],
     }
+    return jsonify(response_data)
 
 
-@app.get("/api/get-eco-score")
-def get_eco_score(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
+@app.route("/api/get-eco-score", methods=["GET"])
+@auth_required
+def get_eco_score():
+    user_id = get_current_user_id()
+    user = g.db.query(User).filter(User.id == user_id).first()
     level = EcoScoreEngine.get_level(user.eco_score)
+    
     badges_list = []
     for key, badge in EcoScoreEngine.BADGES.items():
         badges_list.append({
             **badge, "earned": user.eco_score >= badge["threshold"]
         })
-    return {"eco_score": user.eco_score, "level": level, "badges": badges_list}
+        
+    return jsonify({"eco_score": user.eco_score, "level": level, "badges": badges_list})
 
 
 # ═══════════════════ WHAT-IF ═══════════════════
 
-@app.get("/api/what-if")
-def what_if_simulation(
-    category: str, current_type: str, alt_type: str, quantity: float = 10,
-    user_id: int = Depends(get_current_user_id)
-):
+@app.route("/api/what-if", methods=["GET"])
+@auth_required
+def what_if_simulation():
+    category = request.args.get('category')
+    current_type = request.args.get('current_type')
+    alt_type = request.args.get('alt_type')
+    quantity = float(request.args.get('quantity', 10))
+    
     try:
-        return carbon_calculator.what_if(category, current_type, alt_type, quantity)
+        return jsonify(carbon_calculator.what_if(category, current_type, alt_type, quantity))
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        return jsonify({"detail": str(e)}), 400
 
 
 # ═══════════════════ AI COACH ═══════════════════
 
-@app.post("/api/ai-chat")
-def ai_chat(data: ChatMessage, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
+@app.route("/api/ai-chat", methods=["POST"])
+@auth_required
+def ai_chat():
+    try:
+        data = ChatMessage(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    user_id = get_current_user_id()
+    db = g.db
     user = db.query(User).filter(User.id == user_id).first()
-    total_carbon = db.query(func.coalesce(func.sum(Activity.carbon_kg), 0)).filter(
-        Activity.user_id == user_id).scalar()
+    
+    total_carbon = db.query(func.coalesce(func.sum(Activity.carbon_kg), 0)).filter(Activity.user_id == user_id).scalar()
     user_data = {"eco_score": user.eco_score, "total_carbon": float(total_carbon), "username": user.username}
+    
     response = AIEcoCoach.chat_response(data.message, user_data)
-    return {"response": response}
+    return jsonify({"response": response})
 
 
 # ═══════════════════ GOALS ═══════════════════
 
-@app.post("/api/goals")
-def create_goal(data: GoalCreate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    goal = Goal(user_id=user_id, title=data.title, description=data.description,
-                category=data.category, target_reduction_kg=data.target_reduction_kg)
-    db.add(goal)
-    db.commit()
-    db.refresh(goal)
-    return _goal_dict(goal)
+@app.route("/api/goals", methods=["POST"])
+@auth_required
+def create_goal():
+    try:
+        data = GoalCreate(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    goal = Goal(
+        user_id=get_current_user_id(), title=data.title, description=data.description,
+        category=data.category, target_reduction_kg=data.target_reduction_kg
+    )
+    g.db.add(goal)
+    g.db.commit()
+    g.db.refresh(goal)
+    return jsonify(_goal_dict(goal))
 
 
-@app.get("/api/goals")
-def get_goals(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    goals = db.query(Goal).filter(Goal.user_id == user_id).order_by(Goal.created_at.desc()).all()
-    return [_goal_dict(g) for g in goals]
+@app.route("/api/goals", methods=["GET"])
+@auth_required
+def get_goals():
+    goals = g.db.query(Goal).filter(Goal.user_id == get_current_user_id()).order_by(Goal.created_at.desc()).all()
+    return jsonify([_goal_dict(g) for g in goals])
 
 
-@app.put("/api/goals/{goal_id}")
-def update_goal(goal_id: int, data: GoalUpdate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    goal = db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == user_id).first()
+@app.route("/api/goals/<int:goal_id>", methods=["PUT"])
+@auth_required
+def update_goal(goal_id):
+    try:
+        data = GoalUpdate(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    goal = g.db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == get_current_user_id()).first()
     if not goal:
-        raise HTTPException(404, "Goal not found")
+        return jsonify({"detail": "Goal not found"}), 404
+        
     if data.title is not None:
         goal.title = data.title
     if data.is_completed is not None:
         goal.is_completed = data.is_completed
-    db.commit()
-    return _goal_dict(goal)
+        
+    g.db.commit()
+    return jsonify(_goal_dict(goal))
 
 
-@app.delete("/api/goals/{goal_id}")
-def delete_goal(goal_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    goal = db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == user_id).first()
+@app.route("/api/goals/<int:goal_id>", methods=["DELETE"])
+@auth_required
+def delete_goal(goal_id):
+    goal = g.db.query(Goal).filter(Goal.id == goal_id, Goal.user_id == get_current_user_id()).first()
     if not goal:
-        raise HTTPException(404, "Goal not found")
-    db.delete(goal)
-    db.commit()
-    return {"message": "Goal deleted"}
+        return jsonify({"detail": "Goal not found"}), 404
+        
+    g.db.delete(goal)
+    g.db.commit()
+    return jsonify({"message": "Goal deleted"})
 
 
 # ═══════════════════ CHALLENGES ═══════════════════
 
-@app.get("/api/get-challenges")
-def get_challenges(user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    challenges = db.query(Challenge).filter(Challenge.is_active == True).all()
+@app.route("/api/get-challenges", methods=["GET"])
+@auth_required
+def get_challenges():
+    user_id = get_current_user_id()
+    challenges = g.db.query(Challenge).filter(Challenge.is_active == True).all()
     user_participations = {
         uc.challenge_id: uc for uc in
-        db.query(UserChallenge).filter(UserChallenge.user_id == user_id).all()
+        g.db.query(UserChallenge).filter(UserChallenge.user_id == user_id).all()
     }
+    
     result = []
     for c in challenges:
         uc = user_participations.get(c.id)
@@ -366,37 +426,48 @@ def get_challenges(user_id: int = Depends(get_current_user_id), db: Session = De
             "progress": uc.progress if uc else 0,
             "is_completed": uc.is_completed if uc else False,
         })
-    return result
+    return jsonify(result)
 
 
-@app.post("/api/join-challenge/{challenge_id}")
-def join_challenge(challenge_id: int, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    challenge = db.query(Challenge).filter(Challenge.id == challenge_id).first()
+@app.route("/api/join-challenge/<int:challenge_id>", methods=["POST"])
+@auth_required
+def join_challenge(challenge_id):
+    user_id = get_current_user_id()
+    challenge = g.db.query(Challenge).filter(Challenge.id == challenge_id).first()
     if not challenge:
-        raise HTTPException(404, "Challenge not found")
-    existing = db.query(UserChallenge).filter(
+        return jsonify({"detail": "Challenge not found"}), 404
+        
+    existing = g.db.query(UserChallenge).filter(
         UserChallenge.user_id == user_id, UserChallenge.challenge_id == challenge_id
     ).first()
     if existing:
-        raise HTTPException(400, "Already joined")
+        return jsonify({"detail": "Already joined"}), 400
+        
     uc = UserChallenge(user_id=user_id, challenge_id=challenge_id)
-    db.add(uc)
-    db.commit()
-    return {"message": "Joined challenge", "challenge": challenge.title}
+    g.db.add(uc)
+    g.db.commit()
+    return jsonify({"message": "Joined challenge", "challenge": challenge.title})
 
 
 # ═══════════════════ CATEGORIES ═══════════════════
 
-@app.get("/api/categories")
+@app.route("/api/categories", methods=["GET"])
 def get_categories():
-    return carbon_calculator.get_categories()
+    return jsonify(carbon_calculator.get_categories())
 
 
 # ═══════════════════ SETTINGS ═══════════════════
 
-@app.put("/api/settings")
-def update_settings(data: SettingsUpdate, user_id: int = Depends(get_current_user_id), db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.id == user_id).first()
+@app.route("/api/settings", methods=["PUT"])
+@auth_required
+def update_settings():
+    try:
+        data = SettingsUpdate(**request.json)
+    except ValidationError as e:
+        return jsonify({"detail": e.errors()}), 422
+
+    user = g.db.query(User).filter(User.id == get_current_user_id()).first()
+    
     if data.theme is not None:
         user.theme = data.theme
     if data.monthly_budget_kg is not None:
@@ -405,15 +476,16 @@ def update_settings(data: SettingsUpdate, user_id: int = Depends(get_current_use
         user.full_name = data.full_name
     if data.notification_enabled is not None:
         user.notification_enabled = data.notification_enabled
-    db.commit()
-    return _user_dict(user)
+        
+    g.db.commit()
+    return jsonify(_user_dict(user))
 
 
 # ═══════════════════ EDUCATION ═══════════════════
 
-@app.get("/api/education")
+@app.route("/api/education", methods=["GET"])
 def get_education():
-    return {
+    return jsonify({
         "cards": [
             {"id": 1, "icon": "🌍", "title": "What is a Carbon Footprint?",
              "content": "A carbon footprint is the total amount of greenhouse gases produced directly and indirectly by human activities, measured in CO₂ equivalents. The global average is about 4 tonnes per person per year."},
@@ -439,7 +511,7 @@ def get_education():
             "Producing one smartphone generates ~70kg of CO₂.",
             "The fashion industry produces 10% of global carbon emissions.",
         ]
-    }
+    })
 
 
 # ═══════════════════ HELPERS ═══════════════════
@@ -471,7 +543,5 @@ def _goal_dict(g):
         "created_at": g.created_at.isoformat() if g.created_at else None,
     }
 
-
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    app.run(host="0.0.0.0", port=8000, debug=True)
