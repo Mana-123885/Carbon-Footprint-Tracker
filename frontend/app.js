@@ -399,9 +399,10 @@ async function loadInsights() {
                     responsive: true, maintainAspectRatio: false,
                     plugins: { legend: { display: false } },
                     scales: {
-                        y: { min: 0, max: 1000, grid: { color: 'rgba(0,0,0,0.05)' } },
-                        x: { grid: { display: false } }
-                    }
+                        y: { display: false, min: 0, max: 1000 },
+                        x: { display: false }
+                    },
+                    layout: { padding: 0 }
                 }
             });
         }

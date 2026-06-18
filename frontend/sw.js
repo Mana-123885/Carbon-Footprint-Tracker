@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ecotrack-v1';
+const CACHE_NAME = 'ecotrack-v3';
 const ASSETS = [
   '/',
   '/index.html',
@@ -23,6 +23,7 @@ self.addEventListener('install', event => {
         );
       })
   );
+  self.skipWaiting();
 });
 
 self.addEventListener('fetch', event => {
@@ -77,4 +78,5 @@ self.addEventListener('activate', event => {
       );
     })
   );
+  return self.clients.claim();
 });
