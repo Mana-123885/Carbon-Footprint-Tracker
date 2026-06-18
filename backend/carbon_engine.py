@@ -156,24 +156,32 @@ class AIEcoCoach:
             "🚗 Carpooling halves your transport emissions.",
             "⚡ EVs produce 60-70% less CO₂ than petrol cars.",
             "🏠 WFH 2 days/week cuts transport emissions ~40%.",
+            "🚶 Walking is the ultimate zero-emission transport for distances under 2km.",
+            "🚍 Taking the bus instead of driving can save up to 2.5kg CO₂ per 10km.",
         ],
         "food": [
             "🥗 Plant meals produce 50-80% less emissions.",
             "🌱 Oat milk = 80% less CO₂ than dairy milk.",
             "🍎 Local seasonal produce cuts food transport CO₂ by 50%.",
             "🍌 Halving food waste saves ~300kg CO₂/year.",
+            "🥩 Replacing one beef meal a week with chicken saves ~20kg CO₂.",
+            "🫘 Tofu and lentils have a fraction of the carbon footprint of meat.",
         ],
         "energy": [
             "💡 LEDs save 80% energy vs incandescent bulbs.",
             "🌡️ 1°C lower thermostat = ~10% less heating emissions.",
             "☀️ Solar panels offset 1,000-2,000 kg CO₂/year.",
             "🔌 Unplug standby devices to save 5-10% electricity.",
+            "❄️ Cleaning your AC filters reduces energy consumption by 5-15%.",
+            "🔥 Washing clothes in cold water saves ~0.3kg CO₂ per load.",
         ],
         "waste": [
             "♻️ Recycling 1 can saves energy for 3 hours of TV.",
             "🌿 Composting reduces landfill methane.",
             "📱 Using your phone 1 extra year saves ~70kg CO₂.",
             "👕 Second-hand clothes save 5-10kg CO₂ per item.",
+            "🥤 Using a reusable water bottle saves ~1.5kg CO₂ per month.",
+            "🛍️ Bringing your own shopping bags cuts out single-use plastics.",
         ],
     }
 
@@ -215,27 +223,26 @@ class AIEcoCoach:
     def chat_response(cls, message, user_data):
         ml = message.lower()
         eco_score = user_data.get("eco_score", 500)
+        total_carbon = user_data.get("total_carbon", 0.0)
+        username = user_data.get("username", "EcoWarrior")
+        
         if any(w in ml for w in ["hello", "hi", "hey"]):
             lv = EcoScoreEngine.get_level(eco_score)
-            return f"Hey there, {lv['icon']} {lv['name']}! Your eco score is {eco_score}/1000. Ask me anything about reducing your carbon footprint!"
+            return f"Hey there, {username}! {lv['icon']} {lv['name']} status recognized! Your current eco score is {eco_score}/1000 and you've emitted {total_carbon} kg CO₂ so far. Ask me anything about reducing your carbon footprint!"
         if any(w in ml for w in ["carbon", "emission", "co2", "footprint"]):
-            return "📊 The average person emits ~4,000 kg CO₂/year. Quick wins:\n• 🚲 Bike for short trips\n• 🥗 Try meat-free days\n• 💡 Switch to LEDs\n• ♻️ Recycle regularly"
+            return f"📊 You have emitted a total of {total_carbon} kg CO₂. The average person emits ~4,000 kg CO₂/year. Here are all my top quick wins:\n• 🚲 Bike for short trips\n• 🥗 Try meat-free days\n• 💡 Switch to LEDs\n• ♻️ Recycle regularly"
         if any(w in ml for w in ["transport", "car", "drive", "fly", "bus", "train"]):
-            import random
-            return "🚗 Transport Tips:\n" + "\n".join(f"• {t}" for t in random.sample(cls.TIPS["transport"], 3))
+            return "🚗 Here is ALL the information on Transport:\n" + "\n".join(f"• {t}" for t in cls.TIPS["transport"])
         if any(w in ml for w in ["food", "eat", "diet", "meat", "vegan"]):
-            import random
-            return "🍽️ Food Tips:\n" + "\n".join(f"• {t}" for t in random.sample(cls.TIPS["food"], 3))
-        if any(w in ml for w in ["energy", "electric", "power", "solar"]):
-            import random
-            return "⚡ Energy Tips:\n" + "\n".join(f"• {t}" for t in random.sample(cls.TIPS["energy"], 3))
-        if any(w in ml for w in ["waste", "recycle", "compost"]):
-            import random
-            return "♻️ Waste Tips:\n" + "\n".join(f"• {t}" for t in random.sample(cls.TIPS["waste"], 3))
+            return "🍽️ Here is ALL the information on Food:\n" + "\n".join(f"• {t}" for t in cls.TIPS["food"])
+        if any(w in ml for w in ["energy", "electric", "power", "solar", "ac "]):
+            return "⚡ Here is ALL the information on Energy:\n" + "\n".join(f"• {t}" for t in cls.TIPS["energy"])
+        if any(w in ml for w in ["waste", "recycle", "compost", "plastic"]):
+            return "♻️ Here is ALL the information on Waste:\n" + "\n".join(f"• {t}" for t in cls.TIPS["waste"])
         if any(w in ml for w in ["score", "level", "badge", "rank"]):
             lv = EcoScoreEngine.get_level(eco_score)
-            return f"🏆 Eco Score: {eco_score}/1000\nLevel: {lv['icon']} {lv['name']}\nKeep logging green activities!"
-        return "🌿 I can help with:\n• 🚗 Transport tips\n• 🍽️ Food advice\n• ⚡ Energy saving\n• ♻️ Waste reduction\n• 📊 Your eco score\n\nJust ask!"
+            return f"🏆 {username}'s Eco Score: {eco_score}/1000\nLevel: {lv['icon']} {lv['name']}\nKeep logging green activities to level up!"
+        return "🌿 I can provide detailed information on:\n• 🚗 Transport (cars, flights, transit)\n• 🍽️ Food (diet, waste)\n• ⚡ Energy (electricity, heating)\n• ♻️ Waste (recycling, compost)\n• 📊 Your personal eco score and footprint\n\nWhat would you like to know?"
 
 
 carbon_calculator = CarbonCalculator()
