@@ -54,6 +54,20 @@ def serve_index():
         return FileResponse(index_path)
     return {"message": f"{APP_NAME} API v{APP_VERSION}"}
 
+@app.get("/manifest.json")
+def serve_manifest():
+    path = os.path.join(FRONTEND_DIR, "manifest.json")
+    if os.path.exists(path):
+        return FileResponse(path)
+    raise HTTPException(404, "Manifest not found")
+
+@app.get("/sw.js")
+def serve_sw():
+    path = os.path.join(FRONTEND_DIR, "sw.js")
+    if os.path.exists(path):
+        return FileResponse(path)
+    raise HTTPException(404, "Service Worker not found")
+
 
 # ═══════════════════ AUTH ═══════════════════
 
