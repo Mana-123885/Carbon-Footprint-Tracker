@@ -22,7 +22,7 @@ from config import APP_NAME
 app = Flask(APP_NAME)
 CORS(app)
 
-FRONTEND_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend")
+FRONTEND_DIR = os.path.dirname(__file__)
 
 @app.before_request
 def before_request():
@@ -54,7 +54,10 @@ def serve_index():
 
 @app.route("/static/<path:filename>")
 def serve_static(filename):
-    return send_from_directory(FRONTEND_DIR, filename)
+    allowed_files = {"app.js", "styles.css", "icon-192x192.svg", "icon-512x512.svg"}
+    if filename in allowed_files:
+        return send_from_directory(FRONTEND_DIR, filename)
+    return jsonify({"detail": "Not found"}), 404
 
 @app.route("/manifest.json")
 def serve_manifest():
